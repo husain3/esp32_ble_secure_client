@@ -7,20 +7,23 @@
  */
 
 /** NimBLE differences highlighted in comment blocks **/
+#include <BLEDevice.h>
 
-/*******original********
-#include "BLEDevice.h"
-***********************/
-#include "NimBLEDevice.h"
+#include <map>
+#include <string>
+#include <list>
+
+ #include <Arduino.h>
+// #include "NimBLEDevice.h"
 
 // The remote service we wish to connect to.
 static BLEUUID serviceUUID("ABCD");
 // The characteristic of the remote service we are interested in.
 static BLEUUID    charUUID("1235");
 
-static boolean doConnect = true;
-static boolean connected = false;
-static boolean doScan = false;
+static bool doConnect = true;
+static bool connected = false;
+static bool doScan = false;
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 static BLEAdvertisedDevice* myDevice;
 
@@ -39,8 +42,27 @@ static void notifyCallback(
 
 /**  None of these are required as they will be handled by the library with defaults. **
  **                       Remove as you see fit for your needs                        */
-class MyClientCallback : public BLEClientCallbacks {
+class Monitor : public BLEClientCallbacks {
+public:
+	int16_t connection_id;
+	int16_t rssi_average = 0;
+
+	/* dBm to distance parameters; How to update distance_factor 1.place the
+	 * phone at a known distance (2m, 3m, 5m, 10m) 2.average about 10 RSSI
+	 * values for each of these distances, Set distance_factor so that the
+	 * calculated distance approaches the actual distances, e.g. at 5m. */
+	static constexpr float reference_power  = -50;
+	static constexpr float distance_factor = 3.5;
+
+	// uint8_t get_value() { return value++; }
+	// esp_err_t get_rssi() { return esp_ble_gap_read_rssi(remote_addr); }
+
+	static float get_distance(const int8_t rssi) {
+		return pow(10, (reference_power - rssi)/(10*distance_factor));
+	}
+	
 	void onConnect(BLEClient* pclient) {
+		connection_id = pclient->getConnId();
 	}
 
 	void onDisconnect(BLEClient* pclient) {
@@ -58,7 +80,15 @@ class MyClientCallback : public BLEClientCallbacks {
 		return true;
 	}
 
-	void onAuthenticationComplete(ble_gap_conn_desc desc){
+	void onPassKeyNotify(uint32_t pass_key) {
+
+	}
+
+	bool onSecurityRequest() {
+		return true;
+	}
+
+	void onAuthenticationComplete(esp_ble_auth_cmpl_t desc){
 		Serial.println("Starting BLE work!");
 	}
 /*******************************************************************/
@@ -71,7 +101,17 @@ bool connectToServer() {
     BLEClient*  pClient  = BLEDevice::createClient();
     Serial.println(" - Created client");
 
-    pClient->setClientCallbacks(new MyClientCallback());
+    pClient->setClientCallbacks(new Monitor());
+
+	// if(!pClient->secureConnection()) {
+	// 	Serial.println("UNABLE TO SECURE");
+	// 	pClient->disconnect();
+		
+	// 	// Add an ignore flag if too many failed secure connect requests
+	// 	// NimBLEDevice::addIgnored(currentDevice);
+	// } else {
+	// 	Serial.println("SECURITY ESTABLISHED");
+	// }
 
 	BLEAddress address("34:94:54:25:43:82");
 
@@ -124,21 +164,21 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 
 /*** Only a reference to the advertised device is passed now
 	void onResult(BLEAdvertisedDevice advertisedDevice) { **/
-	void onResult(BLEAdvertisedDevice* advertisedDevice) {
+	void onResult(BLEAdvertisedDevice advertisedDevice) {
 		Serial.print("BLE Advertised Device found: ");
-		Serial.println(advertisedDevice->toString().c_str());
+		Serial.println(advertisedDevice.toString().c_str());
 
 		// We have found a device, let us now see if it contains the service we are looking for.
 		/********************************************************************************
 		if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
 		********************************************************************************/
-		if (advertisedDevice->haveServiceUUID() && advertisedDevice->isAdvertisingService(serviceUUID)) {
+		if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
 
 			BLEDevice::getScan()->stop();
 		/*******************************************************************
 			 myDevice = new BLEAdvertisedDevice(advertisedDevice);
 		*******************************************************************/
-			myDevice = advertisedDevice; /** Just save the reference now, no need to copy the object */
+			// myDevice = advertisedDevice; /** Just save the reference now, no need to copy the object */
 			doConnect = true;
 			doScan = true;
 
